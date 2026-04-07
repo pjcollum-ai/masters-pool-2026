@@ -157,7 +157,7 @@
     <button class="tab active" onclick="showTab('submit',this)">Submit picks</button>
     <button class="tab" onclick="showTab('leaderboard',this)">Leaderboard</button>
     <button class="tab" onclick="showTab('live',this)">Live scoring</button>
-    <button class="tab" onclick="showTab('admin',this)">Admin</button>
+    <button class="tab" id="admin-tab" style="display:none" onclick="showTab('admin',this)">Admin</button>
   </div>
 
   <!-- SUBMIT -->
@@ -587,6 +587,10 @@ function showTab(id,btn){
 }
 
 // ── INIT ──
+// Show admin tab only if ?admin=masters2026 is in the URL
+if(new URLSearchParams(window.location.search).get('admin') === 'masters2026'){
+  document.getElementById('admin-tab').style.display = 'block';
+}
 loadCfg();
 renderTierSelects();
 renderLive();
