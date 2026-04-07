@@ -504,12 +504,21 @@ async function submitPicks(){
   const btn=document.getElementById('submit-btn');
   btn.textContent='Submitting...'; btn.disabled=true;
   try{
-    await sbFetch('entries',{
-      method:'POST',
-      prefer:'resolution=merge-duplicates',
-      headers:{'Prefer':'resolution=merge-duplicates'},
-      body:{first_name:first,last_initial:last,pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]}
-    });
+    // Check if entry already exists for this name
+    const existing = await sbFetch('entries?first_name=eq.'+encodeURIComponent(first)+'&last_initial=eq.'+encodeURIComponent(last));
+    if(existing && existing.length > 0){
+      // Update existing entry
+      await sbFetch('entries?first_name=eq.'+encodeURIComponent(first)+'&last_initial=eq.'+encodeURIComponent(last),{
+        method:'PATCH',
+        body:{pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]}
+      });
+    } else {
+      // Insert new entry
+      await sbFetch('entries',{
+        method:'POST',
+        body:{first_name:first,last_initial:last,pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]}
+      });
+    }
     document.getElementById('pick-form').style.display='none';
     document.getElementById('success-box').style.display='block';
     document.getElementById('success-detail').innerHTML=`<b>${first} ${last}.</b> — ${picks.join(' · ')}`;
