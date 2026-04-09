@@ -574,6 +574,8 @@ async function fetchLive(){
       const comp = (mastersEvent.competitions||[])[0];
       const competitors = (comp&&comp.competitors)||[];
 
+      // DEBUG: log first competitor raw structure
+      if(competitors.length) console.log('ESPN competitor sample:', JSON.stringify(competitors[0]).substring(0,500));
       const espnMap = {};
       competitors.forEach(c=>{
         const name = (c.athlete&&c.athlete.displayName)||c.displayName||'';
