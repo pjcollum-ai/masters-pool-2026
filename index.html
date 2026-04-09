@@ -489,7 +489,19 @@ function renderBanner(){
 function renderLeaderboard(){
   const locked=cfg.picks_locked&&!cfg.tournament_active;
   const hasLive=Object.keys(liveScores).length>0&&cfg.tournament_active;
-  const sorted=[...entries].map(e=>({...e,total:eTotal(e)})).sort((a,b)=>b.total-a.total);
+  // When tournament active, sort by total prize money earned (or score if no prizes yet)
+  const sorted=[...entries].map(e=>{
+    const picks=[e.pick_t1,e.pick_t2,e.pick_t3,e.pick_t4,e.pick_t5];
+    // Calculate total score for tiebreaking
+    const totalScore = picks.reduce((s,p)=>{
+      const ls=liveScores[p];
+      return s+(ls&&ls.score!=null?ls.score:0);
+    },0);
+    return {...e,total:eTotal(e),totalScore};
+  }).sort((a,b)=>{
+    if(b.total!==a.total) return b.total-a.total;
+    return a.totalScore-b.totalScore; // lower score = better in golf
+  });
 
   document.getElementById('s-entries').textContent=sorted.length||'0';
   document.getElementById('s-leader').textContent=sorted.length?sorted[0].first_name:'—';
@@ -655,8 +667,33 @@ function renderLive(){
     document.getElementById('live-body').innerHTML=`<div class="empty">Hit ↻ Refresh to load live Masters scores.<br><br><span style="font-size:11px">Projected prizes use 2025 Masters payout structure ($21M purse).</span></div>`;
     return;
   }
+
+  // Step 1: Sort ALL players in our pool by score to derive real-time position
   const poolPlayers = FIELD.map(p=>p.n).filter(n=>liveScores[n]);
-  const sorted = poolPlayers.sort((a,b)=>(liveScores[a].posNum||999)-(liveScores[b].posNum||999));
+  // Sort by score ascending (lower = better in golf)
+  poolPlayers.sort((a,b)=>{
+    const sa = liveScores[a]&&liveScores[a].score!=null ? liveScores[a].score : 999;
+    const sb = liveScores[b]&&liveScores[b].score!=null ? liveScores[b].score : 999;
+    return sa-sb;
+  });
+
+  // Step 2: Assign positions based on score rank (handle ties)
+  // We need full-field position for prize money, so use score relative to full ESPN field
+  // Build a full-field sorted score list to get accurate position
+  const allScores = Object.values(liveScores).map(p=>p.score||0).sort((a,b)=>a-b);
+  poolPlayers.forEach(name=>{
+    const ls = liveScores[name];
+    if(!ls) return;
+    const score = ls.score||0;
+    // Count how many players in full field are strictly better
+    const rank = allScores.filter(s=>s<score).length + 1;
+    // Count ties
+    const ties = allScores.filter(s=>s===score).length;
+    ls.posNum = rank;
+    ls.position = ties>1 ? 'T'+rank : String(rank);
+  });
+
+  const sorted = poolPlayers;
   const hdr=`<div class="live-grid live-header"><span>Pos</span><span>Player</span><span class="txt-right">Score</span><span class="txt-right">Thru</span><span class="txt-right">Odds</span><span class="txt-right">Proj. prize</span></div>`;
   const rows=sorted.map(name=>{
     const d=liveScores[name];
