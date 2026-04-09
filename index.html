@@ -574,30 +574,55 @@ async function fetchLive(){
       const comp = (mastersEvent.competitions||[])[0];
       const competitors = (comp&&comp.competitors)||[];
 
-      // DEBUG: log first competitor raw structure
-      if(competitors.length) console.log('ESPN competitor sample:', JSON.stringify(competitors[0]).substring(0,500));
       const espnMap = {};
       competitors.forEach(c=>{
-        const name = (c.athlete&&c.athlete.displayName)||c.displayName||'';
+        // Extract name - try multiple paths
+        const name = (c.athlete&&c.athlete.displayName)||(c.athlete&&c.athlete.fullName)||c.displayName||c.name||'';
         if(!name) return;
-        // Parse score - ESPN uses displayValue like "-3", "E", "+2"
-        let score = 0;
-        const scoreObj = c.score||{};
-        const raw = String(scoreObj.displayValue||scoreObj.value||scoreObj.toPar||'0').trim();
-        if(raw==='E'||raw===''||raw==='0') score=0;
-        else if(raw.startsWith('-')) score=parseInt(raw)||0;
-        else if(raw.startsWith('+')) score=parseInt(raw.substring(1))||0;
-        else score=parseInt(raw)||0;
 
+        // Extract score - ESPN stores it many different ways
+        let score = 0;
+        // Try linescores (round scores added up)
+        if(c.linescores&&c.linescores.length){
+          score = c.linescores.reduce((s,l)=>{
+            const v = l.displayValue||l.value||'0';
+            const n = String(v).replace('E','0').replace('+','');
+            return s+(parseInt(n)||0);
+          },0);
+        }
+        // Try score object
+        if(score===0&&c.score){
+          const s = c.score;
+          const raw = String(s.displayValue||s.toPar||s.value||'E').trim();
+          if(raw==='E'||raw==='even') score=0;
+          else score=parseInt(raw.replace('+',''))||0;
+        }
+        // Try statistics array
+        if(score===0&&c.statistics&&c.statistics.length){
+          const topar = c.statistics.find(s=>s.name==='scoreToPar'||s.name==='toPar');
+          if(topar) score=parseInt(topar.displayValue||topar.value||'0')||0;
+        }
+
+        // Position
         const status = c.status||{};
-        const posObj = status.position||{};
-        const pos = posObj.displayName||String(c.standing||'—');
-        const posNum = parseInt(posObj.id||String(c.standing||999))||999;
-        const thru = status.thru!=null?(parseInt(status.thru)===18?'F':String(status.thru)):'—';
-        const typeId = String((status.type&&status.type.id)||'');
-        const isCut = typeId==='6'||typeId==='7'||pos==='CUT'||pos==='WD'||pos==='MC';
+        const posObj = status.position||c.position||{};
+        let pos = posObj.displayName||posObj.shortDisplayName||String(c.standing||'—');
+        if(pos==='0'||pos==='') pos='—';
+        const posNum = parseInt(posObj.id||posObj.value||String(c.standing||999))||999;
+
+        // Thru holes
+        let thru = '—';
+        if(status.thru!=null) thru = parseInt(status.thru)===18?'F':String(status.thru);
+        else if(c.thru!=null) thru = parseInt(c.thru)===18?'F':String(c.thru);
+        else if(status.period) thru = String(status.period);
+
+        // Cut status
+        const typeId = String((status.type&&(status.type.id||status.type.name))||'');
+        const isCut = typeId.includes('CUT')||typeId==='6'||typeId==='7'||pos==='CUT'||pos==='WD'||pos==='MC';
+
         espnMap[name]={score,position:pos,posNum,thru,madeCut:!isCut};
       });
+      console.log('ESPN parsed', Object.keys(espnMap).length, 'players. Sample:', JSON.stringify(Object.entries(espnMap).slice(0,2)));
 
       poolNames.forEach(poolName=>{
         if(espnMap[poolName]){players[poolName]=espnMap[poolName];return;}
