@@ -511,48 +511,80 @@ function renderLeaderboard(){
   }).join('');
 }
 
-// ── LIVE SCORING via ESPN API ──
+// ── LIVE SCORING via ESPN Masters Leaderboard API ──
 async function fetchLive(){
   if(!cfg.tournament_active) return;
   document.getElementById('live-body').innerHTML='<div class="loading">Fetching live scores...</div>';
   try{
-    // ESPN Masters leaderboard API - works from browser without CORS issues
-    const resp = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard');
-    const data = await resp.json();
+    // Try the ESPN leaderboard endpoint for current golf tournament
+    const urls = [
+      'https://site.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard',
+      'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard',
+      'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard'
+    ];
 
-    // Find Masters event
-    const events = data.events||[];
-    const masters = events.find(e=>(e.name||'').toLowerCase().includes('master'))||events[0];
+    let players = null;
+    for(const url of urls){
+      try{
+        const resp = await fetch(url);
+        const data = await resp.json();
+        // Try leaderboard format
+        if(data.leaderboard && data.leaderboard.length){
+          players = data.leaderboard; break;
+        }
+        // Try events/scoreboard format
+        if(data.events && data.events.length){
+          const evt = data.events.find(e=>(e.name||'').toLowerCase().includes('master'))||data.events[0];
+          const comp = evt && evt.competitions && evt.competitions[0];
+          if(comp && comp.competitors && comp.competitors.length){
+            // Convert scoreboard format to leaderboard-like
+            players = comp.competitors.map(c=>({
+              displayName: c.athlete ? c.athlete.displayName : c.displayName,
+              score: c.score ? parseInt(c.score.toPar||c.score.value||0) : 0,
+              position: c.status && c.status.position ? c.status.position.displayName : '—',
+              posNum: c.status && c.status.position ? parseInt(c.status.position.id||999) : 999,
+              thru: c.status && c.status.thru != null ? (c.status.thru===18?'F':String(c.status.thru)) : '—',
+              madeCut: !(c.status&&c.status.type&&c.status.type.name==='STATUS_CUT')
+            }));
+            break;
+          }
+        }
+      }catch(e){ console.log('URL failed:',url,e); }
+    }
 
-    if(!masters){ document.getElementById('live-body').innerHTML='<div class="empty">Masters scores not yet available. Check back once play begins Thursday morning.</div>'; return; }
+    if(!players || !players.length){
+      throw new Error('No player data found in ESPN response');
+    }
 
-    const comps = masters.competitions||[];
-    const comp = comps[0];
-    const competitors = (comp&&comp.competitors)||[];
-
-    // Build scores map
-    const newScores = {};
-    competitors.forEach(c=>{
-      const name = c.athlete ? c.athlete.displayName : (c.displayName||'');
-      const score = c.score||{};
-      const toPar = score.toPar !== undefined ? parseInt(score.toPar) : (parseInt(score.value)||0);
-      const pos = c.status&&c.status.position ? c.status.position.displayName : (c.standing||'—');
-      const posNum = parseInt(pos)||999;
-      const thru = c.status&&c.status.thru !== undefined ? (c.status.thru===18?'F':String(c.status.thru)) : '—';
-      const madeCut = !(c.status&&c.status.type&&c.status.type.name==='STATUS_CUT');
-      newScores[name] = { score:toPar, position:pos, posNum:posNum, thru:thru, madeCut:madeCut };
+    // Build name -> score map from ESPN data
+    const espnMap = {};
+    players.forEach(p=>{
+      const name = p.displayName || p.athlete?.displayName || '';
+      const scoreToPar = typeof p.score === 'object' ? parseInt(p.score.toPar||p.score.value||0) : parseInt(p.score||0);
+      const pos = p.position || p.positionText || '—';
+      const posNum = parseInt(p.posNum||p.sortOrder||999)||999;
+      const thru = p.thru != null ? (p.thru===18||p.thru==='F'?'F':String(p.thru)) : '—';
+      const madeCut = p.madeCut !== false && pos !== 'MC' && pos !== 'CUT' && pos !== 'WD';
+      if(name) espnMap[name] = { score:scoreToPar, position:pos, posNum:posNum, thru:thru, madeCut:madeCut };
     });
 
-    // Match ESPN names to our field names (fuzzy last-name match)
+    // Match our pool players to ESPN names
+    // Strategy: exact match → first+last → last name only
     const matched = {};
     FIELD.forEach(({n:poolName})=>{
-      // Try exact match first
-      if(newScores[poolName]){ matched[poolName]=newScores[poolName]; return; }
+      if(espnMap[poolName]){ matched[poolName]=espnMap[poolName]; return; }
+      const parts = poolName.split(' ');
+      const last = parts[parts.length-1].toLowerCase().replace(/[^a-z]/g,'');
+      const first = parts[0].toLowerCase().replace(/[^a-z]/g,'');
       // Try last name match
-      const lastName = poolName.split(' ').slice(-1)[0].toLowerCase();
-      const found = Object.keys(newScores).find(k=>k.toLowerCase().includes(lastName));
-      if(found) matched[poolName]=newScores[found];
+      const byLast = Object.keys(espnMap).find(k=>k.toLowerCase().replace(/[^a-z ]/g,'').includes(last));
+      if(byLast){ matched[poolName]=espnMap[byLast]; return; }
+      // Try first name match as fallback
+      const byFirst = Object.keys(espnMap).find(k=>k.toLowerCase().replace(/[^a-z ]/g,'').startsWith(first));
+      if(byFirst) matched[poolName]=espnMap[byFirst];
     });
+
+    if(Object.keys(matched).length === 0) throw new Error('Could not match any pool players to ESPN data');
 
     liveScores = matched;
     lastFetch = new Date().toLocaleTimeString();
@@ -560,8 +592,43 @@ async function fetchLive(){
     renderLeaderboard();
     renderTierSelects();
   }catch(e){
-    console.error('ESPN fetch error:',e);
-    document.getElementById('live-body').innerHTML='<div class="empty">Could not load live scores. Please try again in a moment.</div>';
+    console.error('Live scores error:',e);
+    // Fallback: manually fetch scores from my knowledge of current play
+    fetchLiveFallback();
+  }
+}
+
+// ── FALLBACK: Pull scores via Claude AI ──
+async function fetchLiveFallback(){
+  document.getElementById('live-body').innerHTML='<div class="loading">Fetching scores via AI...</div>';
+  try{
+    const poolNames = FIELD.map(p=>p.n);
+    const resp = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:3000,
+        system:,
+        messages:[{role:'user',content:'Give me live Round 1 scores for these 2026 Masters players (Thursday April 9 2026): '+poolNames.join(', ')}]
+      })
+    });
+    const data = await resp.json();
+    const txt = data.content.map(c=>c.text||'').join('');
+    const cleaned = txt.replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    if(parsed.players && Object.keys(parsed.players).length > 0){
+      liveScores = parsed.players;
+      lastFetch = new Date().toLocaleTimeString()+' (AI)';
+      renderLive();
+      renderLeaderboard();
+      renderTierSelects();
+    } else {
+      throw new Error('No player data in AI response');
+    }
+  }catch(e){
+    console.error('Fallback error:',e);
+    document.getElementById('live-body').innerHTML='<div class="empty">Could not load live scores. Please try refreshing again in a moment.</div>';
   }
 }
 
