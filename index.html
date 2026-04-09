@@ -361,7 +361,7 @@ const PAY={1:4200000,2:2268000,3:1428000,4:1008000,5:798000,6:798000,7:703500,8:
 function proj(pos,mc){ if(!mc) return PAY.CUT; return PAY[pos]||(pos>50?51660:0); }
 
 // ── STATE ──
-let cfg = { picks_locked:true, tournament_active:false, submissions_open:true };
+let cfg = { picks_locked:false, tournament_active:true, submissions_open:false };
 let entries = [];
 let liveScores = {};
 let prizes = {};
@@ -526,20 +526,38 @@ async function fetchLive(){
   document.getElementById('live-body').innerHTML='<div class="loading">Fetching live scores from Augusta...</div>';
   try{
     const poolNames = FIELD.map(p=>p.n);
-    const resp = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:4000,
-        system:'You are a live golf scoring assistant for the 2026 Masters Tournament currently in progress at Augusta National. Return ONLY a valid JSON object with no markdown, no backticks, no explanation. Use this exact format: {"players":{"Full Player Name":{"score":INTEGER,"position":"T3","posNum":INTEGER,"thru":"9","madeCut":true}}} where score is strokes relative to par as an integer (e.g. -3 for three under, 0 for even, 2 for two over), position is a string like "1" or "T4" or "MC", posNum is an integer for sorting (1,2,3...999 for MC), thru is the hole number completed as a string or "F" if finished the round, madeCut is true unless position is MC or WD.',
-        messages:[{role:"user",content:"2026 Masters Tournament Round 1, Thursday April 9 2026. Currently in progress at Augusta National. Give me live scores for: "+poolNames.join(", ")+". Return only the JSON."}]
-      })
+    // Use ESPN live golf leaderboard - no API key needed, CORS open
+    const espnResp = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard');
+    const espnData = await espnResp.json();
+    const event = (espnData.events||[]).find(e=>(e.name||'').toLowerCase().includes('master')) || (espnData.events||[])[0];
+    if(!event) throw new Error('No Masters event found in ESPN data');
+    const comp = event.competitions&&event.competitions[0];
+    const competitors = (comp&&comp.competitors)||[];
+    if(!competitors.length) throw new Error('No competitors in ESPN data');
+
+    // Build ESPN name map
+    const espnMap = {};
+    competitors.forEach(c=>{
+      const name = (c.athlete&&c.athlete.displayName)||c.displayName||'';
+      const toPar = c.linescores ? c.linescores.reduce((s,l)=>s+(l.value||0),0) : 0;
+      const status = c.status||{};
+      const pos = (status.position&&status.position.displayName)||'—';
+      const posNum = parseInt((status.position&&status.position.id)||999)||999;
+      const thru = status.thru!=null ? (status.thru===18?'F':String(status.thru)) : (status.completed?'F':'—');
+      const isCut = status.type&&(status.type.name==='STATUS_CUT'||status.type.name==='STATUS_WD');
+      espnMap[name] = {score:toPar, position:pos, posNum:posNum, thru:thru, madeCut:!isCut};
     });
-    const data = await resp.json();
-    if(data.error){ throw new Error(data.error.message||'API error'); }
-    const txt = data.content.map(c=>c.text||'').join('').trim();
-    const parsed = JSON.parse(txt);
+
+    // Match pool players to ESPN names by last name
+    const players = {};
+    poolNames.forEach(poolName=>{
+      if(espnMap[poolName]){ players[poolName]=espnMap[poolName]; return; }
+      const last = poolName.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'');
+      const match = Object.keys(espnMap).find(k=>k.toLowerCase().replace(/[^a-z ]/g,'').includes(last));
+      if(match) players[poolName]=espnMap[match];
+      else players[poolName]={score:0,position:'—',posNum:999,thru:'—',madeCut:true};
+    });
+    const parsed = {players};
     if(!parsed.players) throw new Error('No players in response');
     liveScores = parsed.players;
     lastFetch = new Date().toLocaleTimeString();
