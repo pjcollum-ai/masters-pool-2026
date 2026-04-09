@@ -4,7 +4,6 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Masters Pool 2026</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -272,17 +271,33 @@
 <footer class="site-footer">Masters Pool 2026 &nbsp;·&nbsp; A tradition unlike any other</footer>
 
 <script>
-// ── SUPABASE via official JS client ──
+// ── SUPABASE via raw fetch ──
 const SB_URL = 'https://mrvhbxwqvspknpviwvoh.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ydmhieHdxdnNwa25wdml3dm9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1Nzk4MjcsImV4cCI6MjA5MTE1NTgyN30.agPbEOOBIbFIfzdJyGC1ZVhZvqoxbpChn948Gs0Bcfc';
-let sb = null;
-function getClient(){
-  if(!sb){
-    if(!window.supabase){ console.error('Supabase library not loaded!'); return null; }
-    sb = window.supabase.createClient(SB_URL, SB_KEY);
-    console.log('Supabase client created for:', SB_URL);
-  }
-  return sb;
+const SB_HEADERS = {
+  'apikey': SB_KEY,
+  'Authorization': 'Bearer ' + SB_KEY,
+  'Content-Type': 'application/json'
+};
+async function sbGet(table, query){
+  const res = await fetch(SB_URL+'/rest/v1/'+table+'?'+query, {method:'GET', headers:SB_HEADERS});
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+async function sbPost(table, body){
+  const res = await fetch(SB_URL+'/rest/v1/'+table, {method:'POST', headers:{...SB_HEADERS,'Prefer':'return=representation'}, body:JSON.stringify(body)});
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+async function sbPatch(table, query, body){
+  const res = await fetch(SB_URL+'/rest/v1/'+table+'?'+query, {method:'PATCH', headers:{...SB_HEADERS,'Prefer':'return=representation'}, body:JSON.stringify(body)});
+  if(!res.ok) throw new Error(await res.text());
+  return res.status===204 ? null : res.json();
+}
+async function sbDelete(table, query){
+  const res = await fetch(SB_URL+'/rest/v1/'+table+'?'+query, {method:'DELETE', headers:SB_HEADERS});
+  if(!res.ok) throw new Error(await res.text());
+  return null;
 }
 
 // ── FIELD DATA ──
@@ -360,8 +375,7 @@ function savePrizesLocal(){ try{ localStorage.setItem('masters26_prizes',JSON.st
 // ── LOAD SETTINGS FROM SUPABASE ──
 async function loadSettings(){
   try{
-    const {data,error} = await getClient().from('pool_settings').select('key,value');
-    if(error){ console.error('Settings error detail:', JSON.stringify(error)); throw new Error(JSON.stringify(error)); }
+    const data = await sbGet('pool_settings','select=key,value');
     if(data && data.length){
       data.forEach(r=>{
         if(r.key==='picks_locked') cfg.picks_locked = r.value==='true';
@@ -376,8 +390,7 @@ async function loadSettings(){
 
 async function saveSetting(key, value){
   try{
-    const {error} = await getClient().from('pool_settings').update({value:String(value)}).eq('key',key);
-    if(error) throw error;
+    await sbPatch('pool_settings','key=eq.'+key, {value:String(value)});
     const st = document.getElementById('save-status');
     st.style.display='inline'; setTimeout(()=>st.style.display='none', 2000);
   }catch(e){ console.error('Save setting error:',e); }
@@ -427,10 +440,9 @@ function eTotal(e){ return[e.pick_t1,e.pick_t2,e.pick_t3,e.pick_t4,e.pick_t5].re
 // ── LOAD ENTRIES ──
 async function loadEntries(){
   try{
-    const {data,error} = await getClient().from('entries').select('*').order('created_at',{ascending:true});
-    if(error){ console.error('Entries error detail:', JSON.stringify(error)); throw new Error(JSON.stringify(error)); }
+    const data = await sbGet('entries','select=*&order=created_at.asc');
     entries = data||[];
-    console.log('Entries loaded OK:', entries.length, 'entries');
+    console.log('Entries loaded OK:', entries.length);
     renderLeaderboard();
     renderAdminEntries();
   }catch(e){
@@ -582,13 +594,11 @@ async function submitPicks(){
   const btn=document.getElementById('submit-btn');
   btn.textContent='Submitting...'; btn.disabled=true;
   try{
-    const {data:existing} = await getClient().from('entries').select('id').eq('first_name',first).eq('last_initial',last);
+    const existing = await sbGet('entries','select=id&first_name=eq.'+encodeURIComponent(first)+'&last_initial=eq.'+encodeURIComponent(last));
     if(existing&&existing.length>0){
-      const {error} = await getClient().from('entries').update({pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]}).eq('first_name',first).eq('last_initial',last);
-      if(error) throw error;
+      await sbPatch('entries','first_name=eq.'+encodeURIComponent(first)+'&last_initial=eq.'+encodeURIComponent(last),{pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]});
     } else {
-      const {error} = await getClient().from('entries').insert({first_name:first,last_initial:last,pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]});
-      if(error) throw error;
+      await sbPost('entries',{first_name:first,last_initial:last,pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]});
     }
     document.getElementById('pick-form').style.display='none';
     document.getElementById('success-box').style.display='block';
@@ -653,8 +663,7 @@ async function saveEditedPicks(){
     picks.push(v);
   }
   try{
-    const {error} = await getClient().from('entries').update({pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]}).eq('id',editingEntryId);
-    if(error) throw error;
+    await sbPatch('entries','id=eq.'+editingEntryId,{pick_t1:picks[0],pick_t2:picks[1],pick_t3:picks[2],pick_t4:picks[3],pick_t5:picks[4]});
     closeEditModal();
     await loadEntries();
     alert('Picks updated successfully!');
@@ -664,8 +673,7 @@ async function saveEditedPicks(){
 async function delEntry(id){
   if(!confirm('Remove this entry?')) return;
   try{
-    const {error} = await getClient().from('entries').delete().eq('id',id);
-    if(error) throw error;
+    await sbDelete('entries','id=eq.'+id);
     await loadEntries();
   }catch(e){ alert('Error: '+e.message); }
 }
