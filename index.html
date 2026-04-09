@@ -277,7 +277,9 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 const SB_HEADERS = {
   'apikey': SB_KEY,
   'Authorization': 'Bearer ' + SB_KEY,
-  'Content-Type': 'application/json'
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  'X-Client-Info': 'masters-pool/1.0'
 };
 async function sbGet(table, query){
   const res = await fetch(SB_URL+'/rest/v1/'+table+'?'+query, {method:'GET', headers:SB_HEADERS});
@@ -526,36 +528,62 @@ async function fetchLive(){
   document.getElementById('live-body').innerHTML='<div class="loading">Fetching live scores from Augusta...</div>';
   try{
     const poolNames = FIELD.map(p=>p.n);
-    // Use ESPN live golf leaderboard - no API key needed, CORS open
-    const espnResp = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard');
+    // Fetch live Masters scores from ESPN scoreboard - correct endpoint
+    const espnResp = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard');
+    if(!espnResp.ok) throw new Error('ESPN returned '+espnResp.status);
     const espnData = await espnResp.json();
-    const event = (espnData.events||[]).find(e=>(e.name||'').toLowerCase().includes('master')) || (espnData.events||[])[0];
-    if(!event) throw new Error('No Masters event found in ESPN data');
-    const comp = event.competitions&&event.competitions[0];
-    const competitors = (comp&&comp.competitors)||[];
-    if(!competitors.length) throw new Error('No competitors in ESPN data');
 
-    // Build ESPN name map
+    // Find Masters in events list
+    const events = espnData.events||[];
+    const mastersEvent = events.find(e=>(e.name||'').toLowerCase().includes('master'))||events[0];
+    if(!mastersEvent) throw new Error('Masters not found in ESPN scoreboard');
+
+    const comp = (mastersEvent.competitions||[])[0];
+    const competitors = (comp&&comp.competitors)||[];
+    if(!competitors.length) throw new Error('No competitors found');
+
+    // Parse each competitor
     const espnMap = {};
     competitors.forEach(c=>{
-      const name = (c.athlete&&c.athlete.displayName)||c.displayName||'';
-      const toPar = c.linescores ? c.linescores.reduce((s,l)=>s+(l.value||0),0) : 0;
+      const athlete = c.athlete||{};
+      const name = athlete.displayName||c.displayName||'';
+      if(!name) return;
+
+      // Score - ESPN returns toPar as a string like "-3" or "E" or "+2"
+      let score = 0;
+      if(c.score){
+        const raw = String(c.score.displayValue||c.score.value||'0').trim();
+        if(raw==='E'||raw==='') score=0;
+        else score=parseInt(raw)||0;
+      }
+
       const status = c.status||{};
-      const pos = (status.position&&status.position.displayName)||'—';
-      const posNum = parseInt((status.position&&status.position.id)||999)||999;
-      const thru = status.thru!=null ? (status.thru===18?'F':String(status.thru)) : (status.completed?'F':'—');
-      const isCut = status.type&&(status.type.name==='STATUS_CUT'||status.type.name==='STATUS_WD');
-      espnMap[name] = {score:toPar, position:pos, posNum:posNum, thru:thru, madeCut:!isCut};
+      const posObj = status.position||{};
+      const pos = posObj.displayName||'—';
+      const posNum = parseInt(posObj.id||'999')||999;
+      const thru = status.thru!=null?(parseInt(status.thru)===18?'F':String(status.thru)):'—';
+      const typeId = (status.type&&status.type.id)||'';
+      const isCut = typeId==='6'||typeId==='7'||(pos==='CUT')||(pos==='WD');
+
+      espnMap[name]={score,position:pos,posNum:posNum,thru,madeCut:!isCut};
     });
 
-    // Match pool players to ESPN names by last name
+    if(!Object.keys(espnMap).length) throw new Error('Could not parse ESPN data - '+JSON.stringify(Object.keys(espnData)));
+
+    // Match pool players to ESPN names
     const players = {};
     poolNames.forEach(poolName=>{
+      // Exact match first
       if(espnMap[poolName]){ players[poolName]=espnMap[poolName]; return; }
+      // Last name match
       const last = poolName.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'');
-      const match = Object.keys(espnMap).find(k=>k.toLowerCase().replace(/[^a-z ]/g,'').includes(last));
-      if(match) players[poolName]=espnMap[match];
-      else players[poolName]={score:0,position:'—',posNum:999,thru:'—',madeCut:true};
+      const espnMatch = Object.keys(espnMap).find(k=>{
+        const kLast = k.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'');
+        return kLast===last;
+      });
+      if(espnMatch){ players[poolName]=espnMap[espnMatch]; return; }
+      // Default - not yet teed off
+      players[poolName]={score:0,position:'—',posNum:999,thru:'—',madeCut:true};
     });
     const parsed = {players};
     if(!parsed.players) throw new Error('No players in response');
