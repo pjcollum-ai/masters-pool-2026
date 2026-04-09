@@ -277,7 +277,11 @@ const SB_URL = 'https://mrvhbxwqvspknpviwvoh.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ydmhieHdxdnNwa25wdml3dm9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1Nzk4MjcsImV4cCI6MjA5MTE1NTgyN30.agPbEOOBIbFIfzdJyGC1ZVhZvqoxbpChn948Gs0Bcfc';
 let sb = null;
 function getClient(){
-  if(!sb) sb = window.supabase.createClient(SB_URL, SB_KEY);
+  if(!sb){
+    if(!window.supabase){ console.error('Supabase library not loaded!'); return null; }
+    sb = window.supabase.createClient(SB_URL, SB_KEY);
+    console.log('Supabase client created for:', SB_URL);
+  }
   return sb;
 }
 
@@ -357,7 +361,7 @@ function savePrizesLocal(){ try{ localStorage.setItem('masters26_prizes',JSON.st
 async function loadSettings(){
   try{
     const {data,error} = await getClient().from('pool_settings').select('key,value');
-    if(error) throw error;
+    if(error){ console.error('Settings error detail:', JSON.stringify(error)); throw new Error(JSON.stringify(error)); }
     if(data && data.length){
       data.forEach(r=>{
         if(r.key==='picks_locked') cfg.picks_locked = r.value==='true';
@@ -365,7 +369,8 @@ async function loadSettings(){
         if(r.key==='submissions_open') cfg.submissions_open = r.value==='true';
       });
     }
-  }catch(e){ console.error('Settings load error:',e); }
+    console.log('Settings loaded OK:', JSON.stringify(cfg));
+  }catch(e){ console.error('Settings load error detail:',e.message||e); }
   applySettings();
 }
 
@@ -423,13 +428,14 @@ function eTotal(e){ return[e.pick_t1,e.pick_t2,e.pick_t3,e.pick_t4,e.pick_t5].re
 async function loadEntries(){
   try{
     const {data,error} = await getClient().from('entries').select('*').order('created_at',{ascending:true});
-    if(error) throw error;
+    if(error){ console.error('Entries error detail:', JSON.stringify(error)); throw new Error(JSON.stringify(error)); }
     entries = data||[];
+    console.log('Entries loaded OK:', entries.length, 'entries');
     renderLeaderboard();
     renderAdminEntries();
   }catch(e){
-    console.error('Load entries error:',e);
-    document.getElementById('lb-body').innerHTML='<div class="empty">Could not load entries — please try refreshing.</div>';
+    console.error('Load entries error detail:',e.message||e);
+    document.getElementById('lb-body').innerHTML='<div class="empty">Error: '+( e.message||String(e))+'</div>';
   }
 }
 
