@@ -528,63 +528,85 @@ async function fetchLive(){
   document.getElementById('live-body').innerHTML='<div class="loading">Fetching live scores from Augusta...</div>';
   try{
     const poolNames = FIELD.map(p=>p.n);
-    // Fetch live Masters scores from ESPN scoreboard - correct endpoint
-    const espnResp = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard');
-    if(!espnResp.ok) throw new Error('ESPN returned '+espnResp.status);
-    const espnData = await espnResp.json();
+    // Try Masters.com official leaderboard JSON first, fall back to ESPN
+    let players = {};
+    let gotScores = false;
 
-    // Find Masters in events list
-    const events = espnData.events||[];
-    const mastersEvent = events.find(e=>(e.name||'').toLowerCase().includes('master'))||events[0];
-    if(!mastersEvent) throw new Error('Masters not found in ESPN scoreboard');
-
-    const comp = (mastersEvent.competitions||[])[0];
-    const competitors = (comp&&comp.competitors)||[];
-    if(!competitors.length) throw new Error('No competitors found');
-
-    // Parse each competitor
-    const espnMap = {};
-    competitors.forEach(c=>{
-      const athlete = c.athlete||{};
-      const name = athlete.displayName||c.displayName||'';
-      if(!name) return;
-
-      // Score - ESPN returns toPar as a string like "-3" or "E" or "+2"
-      let score = 0;
-      if(c.score){
-        const raw = String(c.score.displayValue||c.score.value||'0').trim();
-        if(raw==='E'||raw==='') score=0;
-        else score=parseInt(raw)||0;
+    // ATTEMPT 1: Masters.com official data feed
+    try {
+      const mResp = await fetch('https://www.masters.com/en_US/scores/feeds/2026/scores.json', {cache:'no-store'});
+      if(mResp.ok){
+        const mData = await mResp.json();
+        const mPlayers = mData.data&&mData.data.player ? mData.data.player : [];
+        if(mPlayers.length){
+          const mMap = {};
+          mPlayers.forEach(p=>{
+            const name = (p.name||'').trim();
+            const topar = parseInt(p.topar||p.total_topar||'0')||0;
+            const pos = String(p.pos||p.position||'—');
+            const posNum = parseInt(pos.replace('T',''))||999;
+            const thru = p.thru ? (String(p.thru)==='18'?'F':String(p.thru)) : '—';
+            const mc = (p.status||'').toUpperCase()!=='CUT' && pos!=='MC' && pos!=='WD';
+            mMap[name]={score:topar,position:pos,posNum:posNum,thru:thru,madeCut:mc};
+          });
+          // Match to pool players
+          poolNames.forEach(poolName=>{
+            if(mMap[poolName]){players[poolName]=mMap[poolName];return;}
+            const last = poolName.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'');
+            const match = Object.keys(mMap).find(k=>k.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'')=== last);
+            if(match){players[poolName]=mMap[match];return;}
+            players[poolName]={score:0,position:'—',posNum:999,thru:'—',madeCut:true};
+          });
+          gotScores = true;
+          console.log('Scores from Masters.com:', Object.keys(mMap).length, 'players');
+        }
       }
+    } catch(e){ console.log('Masters.com failed:', e.message); }
 
-      const status = c.status||{};
-      const posObj = status.position||{};
-      const pos = posObj.displayName||'—';
-      const posNum = parseInt(posObj.id||'999')||999;
-      const thru = status.thru!=null?(parseInt(status.thru)===18?'F':String(status.thru)):'—';
-      const typeId = (status.type&&status.type.id)||'';
-      const isCut = typeId==='6'||typeId==='7'||(pos==='CUT')||(pos==='WD');
+    // ATTEMPT 2: ESPN scoreboard with fixed score parsing
+    if(!gotScores){
+      const espnResp = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard');
+      if(!espnResp.ok) throw new Error('ESPN returned '+espnResp.status);
+      const espnData = await espnResp.json();
+      const events = espnData.events||[];
+      const mastersEvent = events.find(e=>(e.name||'').toLowerCase().includes('master'))||events[0];
+      if(!mastersEvent) throw new Error('No Masters event in ESPN');
+      const comp = (mastersEvent.competitions||[])[0];
+      const competitors = (comp&&comp.competitors)||[];
 
-      espnMap[name]={score,position:pos,posNum:posNum,thru,madeCut:!isCut};
-    });
+      const espnMap = {};
+      competitors.forEach(c=>{
+        const name = (c.athlete&&c.athlete.displayName)||c.displayName||'';
+        if(!name) return;
+        // Parse score - ESPN uses displayValue like "-3", "E", "+2"
+        let score = 0;
+        const scoreObj = c.score||{};
+        const raw = String(scoreObj.displayValue||scoreObj.value||scoreObj.toPar||'0').trim();
+        if(raw==='E'||raw===''||raw==='0') score=0;
+        else if(raw.startsWith('-')) score=parseInt(raw)||0;
+        else if(raw.startsWith('+')) score=parseInt(raw.substring(1))||0;
+        else score=parseInt(raw)||0;
 
-    if(!Object.keys(espnMap).length) throw new Error('Could not parse ESPN data - '+JSON.stringify(Object.keys(espnData)));
-
-    // Match pool players to ESPN names
-    const players = {};
-    poolNames.forEach(poolName=>{
-      // Exact match first
-      if(espnMap[poolName]){ players[poolName]=espnMap[poolName]; return; }
-      // Last name match
-      const last = poolName.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'');
-      const espnMatch = Object.keys(espnMap).find(k=>{
-        const kLast = k.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'');
-        return kLast===last;
+        const status = c.status||{};
+        const posObj = status.position||{};
+        const pos = posObj.displayName||String(c.standing||'—');
+        const posNum = parseInt(posObj.id||String(c.standing||999))||999;
+        const thru = status.thru!=null?(parseInt(status.thru)===18?'F':String(status.thru)):'—';
+        const typeId = String((status.type&&status.type.id)||'');
+        const isCut = typeId==='6'||typeId==='7'||pos==='CUT'||pos==='WD'||pos==='MC';
+        espnMap[name]={score,position:pos,posNum,thru,madeCut:!isCut};
       });
-      if(espnMatch){ players[poolName]=espnMap[espnMatch]; return; }
-      // Default - not yet teed off
-      players[poolName]={score:0,position:'—',posNum:999,thru:'—',madeCut:true};
-    });
+
+      poolNames.forEach(poolName=>{
+        if(espnMap[poolName]){players[poolName]=espnMap[poolName];return;}
+        const last=poolName.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'');
+        const m=Object.keys(espnMap).find(k=>k.split(' ').pop().toLowerCase().replace(/[^a-z]/g,'')=== last);
+        if(m){players[poolName]=espnMap[m];return;}
+        players[poolName]={score:0,position:'—',posNum:999,thru:'—',madeCut:true};
+      });
+      console.log('Scores from ESPN:', Object.keys(espnMap).length, 'players');
+    }
+
     const parsed = {players};
     if(!parsed.players) throw new Error('No players in response');
     liveScores = parsed.players;
