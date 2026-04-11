@@ -586,8 +586,7 @@ async function fetchLive(){
       const comp = (mastersEvent.competitions||[])[0];
       const competitors = (comp&&comp.competitors)||[];
 
-      // Log full first competitor to see all available fields
-      if(competitors[0]) console.log('ESPN full competitor:', JSON.stringify(competitors[0]).substring(0,800));
+
       const espnMap = {};
       competitors.forEach(c=>{
         // Extract name - try multiple paths
