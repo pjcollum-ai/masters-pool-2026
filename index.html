@@ -622,11 +622,18 @@ async function fetchLive(){
         if(pos==='0'||pos==='') pos='—';
         const posNum = parseInt(posObj.id||posObj.value||String(c.standing||999))||999;
 
-        // Thru holes
+        // Thru holes - check multiple ESPN field locations
         let thru = '—';
-        if(status.thru!=null) thru = parseInt(status.thru)===18?'F':String(status.thru);
-        else if(c.thru!=null) thru = parseInt(c.thru)===18?'F':String(c.thru);
-        else if(status.period) thru = String(status.period);
+        const thruVal = status.thru!=null?status.thru:(c.thru!=null?c.thru:(status.period!=null?status.period:(c.period!=null?c.period:null)));
+        if(thruVal!=null){
+          const t = parseInt(thruVal);
+          thru = (t===18||thruVal==='F')?'F':String(thruVal);
+        }
+        // Also try linescores count - number of completed holes
+        if(thru==='—'&&c.linescores&&c.linescores.length){
+          const completed = c.linescores.filter(l=>l.value!=null&&l.value!==0||(l.displayValue&&l.displayValue!=='')).length;
+          if(completed>0) thru = completed>=18?'F':String(completed);
+        }
 
         // Cut status
         const typeId = String((status.type&&(status.type.id||status.type.name))||'');
