@@ -586,6 +586,9 @@ async function fetchLive(){
       const comp = (mastersEvent.competitions||[])[0];
       const competitors = (comp&&comp.competitors)||[];
 
+      // Log raw status of first active player to see thru field location
+      const sample = competitors.find(c=>c.status&&c.status.thru!=null)||competitors[0];
+      if(sample) console.log('ESPN status sample:', JSON.stringify(sample.status||{}));
       const espnMap = {};
       competitors.forEach(c=>{
         // Extract name - try multiple paths
@@ -629,7 +632,10 @@ async function fetchLive(){
           const t = parseInt(thruVal);
           thru = (t===18||thruVal==='F')?'F':String(thruVal);
         }
-        // Don't use linescores for thru - they represent rounds not holes
+        // If no thru data but player has a score, they have finished their round
+        if(thru==='—' && score!==0) thru='F';
+        // If status says completed
+        if(status.completed===true) thru='F';
 
         // Cut status
         const typeId = String((status.type&&(status.type.id||status.type.name))||'');
