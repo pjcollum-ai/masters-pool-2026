@@ -521,7 +521,7 @@ function renderLeaderboard(){
     } else {
       ph=`<div class="lb-picks">${picks.map(p=>{
         const ls=liveScores[p], pd=pPrize(p), cut=ls&&!ls.madeCut;
-        const sc=ls?(fmtS(ls.score)+(ls.position&&ls.position!=='—'?' '+ls.position:'')):'—';
+        const sc=ls?(fmtS(ls.score)+(ls.position&&ls.position!=='—'?' '+ls.position:'')+(ls.thru&&ls.thru!=='—'?' thru '+ls.thru:'')):'—';
         const pr=pd.amt>0?`<span style="color:var(--green)">${fmtM(pd.amt)}${pd.src==='projected'?' ~':''}</span>`:'';
         return`<div class="pick-chip${cut?' cut':''}">${p} <span style="font-size:10px;color:var(--text-muted)">${ODDS[p]||''}</span> <b>${sc}</b>${pr}</div>`;
       }).join('')}</div>`;
