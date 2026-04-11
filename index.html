@@ -629,11 +629,7 @@ async function fetchLive(){
           const t = parseInt(thruVal);
           thru = (t===18||thruVal==='F')?'F':String(thruVal);
         }
-        // Also try linescores count - number of completed holes
-        if(thru==='—'&&c.linescores&&c.linescores.length){
-          const completed = c.linescores.filter(l=>l.value!=null&&l.value!==0||(l.displayValue&&l.displayValue!=='')).length;
-          if(completed>0) thru = completed>=18?'F':String(completed);
-        }
+        // Don't use linescores for thru - they represent rounds not holes
 
         // Cut status
         const typeId = String((status.type&&(status.type.id||status.type.name))||'');
