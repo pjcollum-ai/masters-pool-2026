@@ -521,7 +521,7 @@ function renderLeaderboard(){
     } else {
       ph=`<div class="lb-picks">${picks.map(p=>{
         const ls=liveScores[p], pd=pPrize(p), cut=ls&&!ls.madeCut;
-        const sc=ls?fmtS(ls.score)+' '+(ls.position||'—'):'—';
+        const sc=ls?(fmtS(ls.score)+(ls.position&&ls.position!=='—'?' '+ls.position:'')):'—';
         const pr=pd.amt>0?`<span style="color:var(--green)">${fmtM(pd.amt)}${pd.src==='projected'?' ~':''}</span>`:'';
         return`<div class="pick-chip${cut?' cut':''}">${p} <span style="font-size:10px;color:var(--text-muted)">${ODDS[p]||''}</span> <b>${sc}</b>${pr}</div>`;
       }).join('')}</div>`;
@@ -656,6 +656,16 @@ async function fetchLive(){
     if(!parsed.players) throw new Error('No players in response');
     liveScores = parsed.players;
     lastFetch = new Date().toLocaleTimeString();
+    // Pre-calculate positions so leaderboard pick chips show them
+    const allPoolScores = Object.values(liveScores).map(p=>p.score||0).sort((a,b)=>a-b);
+    Object.keys(liveScores).forEach(name=>{
+      const ls = liveScores[name];
+      const score = ls.score||0;
+      const rank = allPoolScores.filter(s=>s<score).length+1;
+      const ties = allPoolScores.filter(s=>s===score).length;
+      ls.posNum = rank;
+      ls.position = ties>1?'T'+rank:String(rank);
+    });
     renderLive();
     renderLeaderboard();
     renderTierSelects();
