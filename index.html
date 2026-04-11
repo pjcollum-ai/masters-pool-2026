@@ -587,6 +587,11 @@ async function fetchLive(){
       const competitors = (comp&&comp.competitors)||[];
 
 
+      // Log round 3 data for first 2 competitors
+      competitors.slice(0,2).forEach((c,i)=>{
+        const r3 = c.linescores&&c.linescores.find(l=>l.period===3);
+        console.log('Player '+i+' R3:', JSON.stringify(r3).substring(0,400));
+      });
       const espnMap = {};
       competitors.forEach(c=>{
         // Extract name - try multiple paths
