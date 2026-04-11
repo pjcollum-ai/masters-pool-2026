@@ -587,11 +587,7 @@ async function fetchLive(){
       const competitors = (comp&&comp.competitors)||[];
 
 
-      // Log round 3 data for first 2 competitors
-      competitors.slice(0,2).forEach((c,i)=>{
-        const r3 = c.linescores&&c.linescores.find(l=>l.period===3);
-        console.log('Player '+i+' R3:', JSON.stringify(r3).substring(0,400));
-      });
+
       const espnMap = {};
       competitors.forEach(c=>{
         // Extract name - try multiple paths
@@ -629,16 +625,14 @@ async function fetchLive(){
         const posNum = parseInt(posObj.id||posObj.value||String(c.standing||999))||999;
 
         // Thru holes - check multiple ESPN field locations
+        // Thru - count holes in Round 3 nested linescores
         let thru = '—';
-        const thruVal = status.thru!=null?status.thru:(c.thru!=null?c.thru:(status.period!=null?status.period:(c.period!=null?c.period:null)));
-        if(thruVal!=null){
-          const t = parseInt(thruVal);
-          thru = (t===18||thruVal==='F')?'F':String(thruVal);
+        if(c.linescores&&c.linescores.length){
+          const r3 = c.linescores.find(l=>l.period===3);
+          if(r3&&r3.linescores&&r3.linescores.length){
+            thru = r3.linescores.length>=18?'F':String(r3.linescores.length);
+          }
         }
-        // If no thru data but player has a score, they have finished their round
-        if(thru==='—' && score!==0) thru='F';
-        // If status says completed
-        if(status.completed===true) thru='F';
 
         // Cut status
         const typeId = String((status.type&&(status.type.id||status.type.name))||'');
