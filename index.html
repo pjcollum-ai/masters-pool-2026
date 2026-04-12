@@ -655,7 +655,9 @@ async function fetchLive(){
         // Thru - count holes in Round 3 nested linescores
         let thru = '—';
         if(c.linescores&&c.linescores.length){
-          const r3 = c.linescores.find(l=>l.period===3);
+          // Find the current round - highest period number (R4 on Sunday)
+          const maxPeriod = Math.max(...c.linescores.map(l=>l.period||0));
+          const r3 = c.linescores.find(l=>l.period===maxPeriod);
           if(r3&&r3.linescores&&r3.linescores.length){
             thru = r3.linescores.length>=18?'F':String(r3.linescores.length);
           }
