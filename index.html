@@ -352,6 +352,23 @@ const FIELD=[
   {t:4,n:'Fred Couples',o:'+500000'},{t:4,n:'José María Olazábal',o:'+500000'},
   {t:4,n:'Will Zalatoris',o:'+500000'},
 ];
+// ── 2026 MASTERS MISSED CUT PLAYERS (cut at +4 / 148, top 50 + ties) ──
+const MISSED_CUT = new Set([
+  // Confirmed missed cut from our pool field
+  'Bryson DeChambeau','J.J. Spaun','Akshay Bhatia','Robert MacIntyre',
+  'Danny Willett','Bubba Watson','Zach Johnson','Cameron Smith',
+  'Ángel Cabrera','Vijay Singh','Mike Weir','José María Olazábal',
+  'Fred Couples',
+  // Amateurs (all missed cut)
+  'Brian Campbell','Ethan Fang','Pongsapak Laopakdee','Mason Howell',
+  'Mateo Pulcini','Jackson Herrington','Naoyuki Kataoka','Brandon Holtz',
+  // Others from our field who missed cut
+  'John Keefer','Aldrich Potgieter','Marco Penge','Sami Välimäki',
+  'Michael Brennan','Michael Kim','Andrew Novak',
+  'Rasmus Neergaard-Petersen','Casey Jarvis','Nico Echavarria',
+  'Tom McKibbin','Ryan Gerard','Min Woo Lee'
+]);
+
 const TIER_NAMES=['Tier 1 — Favorites','Tier 2 — Contenders','Tier 3 — Mid-range','Tier 4 — Long shots','Tier 5 — Sleepers'];
 const TIER_CLS=['t1','t2','t3','t4','t5'];
 const TIER_RANGE=['8 players · +410–+2500','9 players · +2600–+4300','14 players · +4500–+7200','15 players · +8200–+14000','45 players · +16000+'];
@@ -588,11 +605,7 @@ async function fetchLive(){
 
 
 
-      // Debug: log Spaun and Garcia raw data
-      const debugPlayers = ['Spaun','Garcia'];
-      competitors.filter(c=>debugPlayers.some(d=>(c.athlete&&c.athlete.displayName||'').includes(d))).forEach(c=>{
-        console.log('DEBUG player:', (c.athlete&&c.athlete.displayName), 'score:', c.score, 'linescores count:', (c.linescores||[]).length);
-      });
+
       const espnMap = {};
       competitors.forEach(c=>{
         // Extract name - try multiple paths
@@ -640,10 +653,10 @@ async function fetchLive(){
         }
 
         // Cut status
-        const typeId = String((status.type&&(status.type.id||status.type.name))||'');
-        const isCut = typeId.includes('CUT')||typeId==='6'||typeId==='7'||pos==='CUT'||pos==='WD'||pos==='MC';
+        // Use hardcoded missed cut list - ESPN cut detection is unreliable
+        const madeCut = !MISSED_CUT.has(name);
 
-        espnMap[name]={score,position:pos,posNum,thru,madeCut:!isCut};
+        espnMap[name]={score,position:pos,posNum,thru,madeCut};
       });
       console.log('ESPN parsed', Object.keys(espnMap).length, 'players. Sample:', JSON.stringify(Object.entries(espnMap).slice(0,2)));
 
