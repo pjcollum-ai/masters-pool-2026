@@ -588,6 +588,11 @@ async function fetchLive(){
 
 
 
+      // Debug: log Spaun and Garcia raw data
+      const debugPlayers = ['Spaun','Garcia'];
+      competitors.filter(c=>debugPlayers.some(d=>(c.athlete&&c.athlete.displayName||'').includes(d))).forEach(c=>{
+        console.log('DEBUG player:', (c.athlete&&c.athlete.displayName), 'score:', c.score, 'linescores count:', (c.linescores||[]).length);
+      });
       const espnMap = {};
       competitors.forEach(c=>{
         // Extract name - try multiple paths
