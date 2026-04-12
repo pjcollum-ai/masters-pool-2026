@@ -360,6 +360,7 @@ const MISSED_CUT = new Set([
   'Ángel Cabrera','Vijay Singh','Mike Weir','José María Olazábal',
   'Fred Couples','Min Woo Lee','Carlos Ortiz','John Keefer',
   'Max Greyserman','Davis Riley','Will Zalatoris',
+  'Harry Hall','Ryan Fox','Nicolai Højgaard','Daniel Berger',
   // Amateurs (all missed cut)
   'Ethan Fang','Pongsapak Laopakdee','Mason Howell',
   'Mateo Pulcini','Jackson Herrington','Naoyuki Kataoka','Brandon Holtz',
@@ -368,6 +369,11 @@ const MISSED_CUT = new Set([
   'Rasmus Neergaard-Petersen','Casey Jarvis','Nico Echavarria',
   'Tom McKibbin'
 ]);
+
+// ── SCORE OVERRIDES for players ESPN gets wrong ──
+const SCORE_OVERRIDES = {
+  'Sergio Garcia': {score:5, position:'T48', posNum:48, thru:'F', madeCut:true}
+};
 
 const TIER_NAMES=['Tier 1 — Favorites','Tier 2 — Contenders','Tier 3 — Mid-range','Tier 4 — Long shots','Tier 5 — Sleepers'];
 const TIER_CLS=['t1','t2','t3','t4','t5'];
@@ -658,6 +664,8 @@ async function fetchLive(){
 
         espnMap[name]={score,position:pos,posNum,thru,madeCut};
       });
+      // Apply manual score overrides for players ESPN gets wrong
+      Object.entries(SCORE_OVERRIDES).forEach(([name,data])=>{ espnMap[name]=data; });
       console.log('ESPN parsed', Object.keys(espnMap).length, 'players. Sample:', JSON.stringify(Object.entries(espnMap).slice(0,2)));
 
       poolNames.forEach(poolName=>{
