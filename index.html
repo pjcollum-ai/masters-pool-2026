@@ -656,15 +656,18 @@ async function fetchLive(){
     if(!parsed.players) throw new Error('No players in response');
     liveScores = parsed.players;
     lastFetch = new Date().toLocaleTimeString();
-    // Pre-calculate positions so leaderboard pick chips show them
-    const allPoolScores = Object.values(liveScores).map(p=>p.score||0).sort((a,b)=>a-b);
-    Object.keys(liveScores).forEach(name=>{
-      const ls = liveScores[name];
-      const score = ls.score||0;
-      const rank = allPoolScores.filter(s=>s<score).length+1;
-      const ties = allPoolScores.filter(s=>s===score).length;
-      ls.posNum = rank;
-      ls.position = ties>1?'T'+rank:String(rank);
+    // Pre-calculate positions — separate cut from active
+    const activeOnlyScores = Object.values(liveScores).filter(d=>d.madeCut!==false).map(d=>d.score||0).sort((a,b)=>a-b);
+    Object.entries(liveScores).forEach(([name,ls])=>{
+      if(ls.madeCut===false){
+        ls.isCut=true; ls.posNum=999; ls.position='MC';
+      } else {
+        ls.isCut=false;
+        const score=ls.score||0;
+        const rank=activeOnlyScores.filter(s=>s<score).length+1;
+        const ties=activeOnlyScores.filter(s=>s===score).length;
+        ls.posNum=rank; ls.position=ties>1?'T'+rank:String(rank);
+      }
     });
     renderLive();
     renderLeaderboard();
@@ -684,32 +687,62 @@ function renderLive(){
     return;
   }
 
-  // Step 1: Sort ALL players in our pool by score to derive real-time position
-  const poolPlayers = FIELD.map(p=>p.n).filter(n=>liveScores[n]);
-  // Sort by score ascending (lower = better in golf)
-  poolPlayers.sort((a,b)=>{
-    const sa = liveScores[a]&&liveScores[a].score!=null ? liveScores[a].score : 999;
-    const sb = liveScores[b]&&liveScores[b].score!=null ? liveScores[b].score : 999;
-    return sa-sb;
+  // Step 1: Separate cut players from active players
+  // Cut = missed cut (stopped after R2), Active = still playing or finished R3+
+  // ESPN marks cut players with madeCut:false OR thru:'F' with only 2 rounds of linescores
+  // Key insight: do NOT mix cut and active players in position ranking
+
+  const allPoolPlayers = FIELD.map(p=>p.n).filter(n=>liveScores[n]);
+
+  // Determine if player made the cut
+  // A player missed the cut if madeCut===false in ESPN data
+  // We also flag anyone whose score is >= +5 AND has thru F AND score hasnt moved in R3
+  allPoolPlayers.forEach(name=>{
+    const ls = liveScores[name];
+    if(!ls) return;
+    // If ESPN explicitly says they didnt make cut
+    if(ls.madeCut===false){
+      ls.isCut=true;
+      ls.thru='MC';
+      return;
+    }
+    ls.isCut=false;
   });
 
-  // Step 2: Assign positions based on score rank (handle ties)
-  // We need full-field position for prize money, so use score relative to full ESPN field
-  // Build a full-field sorted score list to get accurate position
-  const allScores = Object.values(liveScores).map(p=>p.score||0).sort((a,b)=>a-b);
-  poolPlayers.forEach(name=>{
+  // Step 2: Build two separate groups
+  const cutPlayers = allPoolPlayers.filter(n=>liveScores[n]&&liveScores[n].isCut);
+  const activePlayers = allPoolPlayers.filter(n=>liveScores[n]&&!liveScores[n].isCut);
+
+  // Step 3: Assign positions only among ACTIVE players (full field)
+  // Use all active players scores from ESPN to get correct field position
+  const activeScores = Object.entries(liveScores)
+    .filter(([n,d])=>!d.isCut)
+    .map(([n,d])=>d.score||0)
+    .sort((a,b)=>a-b);
+
+  activePlayers.forEach(name=>{
     const ls = liveScores[name];
     if(!ls) return;
     const score = ls.score||0;
-    // Count how many players in full field are strictly better
-    const rank = allScores.filter(s=>s<score).length + 1;
-    // Count ties
-    const ties = allScores.filter(s=>s===score).length;
+    const rank = activeScores.filter(s=>s<score).length+1;
+    const ties = activeScores.filter(s=>s===score).length;
     ls.posNum = rank;
-    ls.position = ties>1 ? 'T'+rank : String(rank);
+    ls.position = ties>1?'T'+rank:String(rank);
   });
 
-  const sorted = poolPlayers;
+  // Step 4: Cut players get MC position and CUT payout
+  cutPlayers.forEach(name=>{
+    const ls = liveScores[name];
+    if(!ls) return;
+    ls.posNum = 999;
+    ls.position = 'MC';
+    ls.madeCut = false;
+  });
+
+  // Step 5: Sort display — active players by score, then cut players at bottom
+  activePlayers.sort((a,b)=>(liveScores[a].score||0)-(liveScores[b].score||0));
+  cutPlayers.sort((a,b)=>(liveScores[a].score||0)-(liveScores[b].score||0));
+  const sorted = [...activePlayers, ...cutPlayers];
   const hdr=`<div class="live-grid live-header"><span>Pos</span><span>Player</span><span class="txt-right">Score</span><span class="txt-right">Thru</span><span class="txt-right">Odds</span><span class="txt-right">Proj. prize</span></div>`;
   const rows=sorted.map(name=>{
     const d=liveScores[name];
